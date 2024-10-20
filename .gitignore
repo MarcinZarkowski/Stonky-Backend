@@ -1,3 +1,2 @@
-Stocky/.env
-Stocky/__pycache__
-authuser/__pycache__
+*.env
+__pycache__/
