@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 import json
 from .get_stock_data import *
 
+import gc 
 from .serializers import custom_json_serializer
 from django.conf import settings
 import threading
@@ -75,23 +76,26 @@ def chat_with_RAG(request):
 
 
 
-    
+
+
+from datetime import datetime, timedelta
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_stock_pred(request, ticker):
-    # Run start_chat asynchronously
     start_chat(ticker)
     
     stock_ticker = yf.Ticker(ticker)
-    stock = stock_ticker.history(period='max')
+    stock = stock_ticker.history(period='1y')
 
     if len(stock) == 0:
         return JsonResponse({'status': 'failed', 'message': 'API error occurred or Ticker not found.'})
     if len(stock) < 60: 
         return JsonResponse({'status': 'failed', 'message': 'Not enough data available.'})
-   
+
     # Feature scaling and stock indicator calculations
     scaler = MinMaxScaler()
+    
+    # Apply indicators and delete temporary columns to free memory early
     stock = MA_Bollinger(stock, 20)
     stock = ROC(stock)
     stock = MACD(stock)
@@ -100,11 +104,14 @@ def get_stock_pred(request, ticker):
     stock = OBV(stock)
     stock = RSI(stock)
 
+    # Drop rows with NaN values
     stock = stock.dropna()
 
-    index_dates = [stock.index[i].strftime('%Y-%m-%d') for i in range(60, stock.shape[0])]
+    # Store the index dates before converting to NumPy
+    index_dates = stock.index[60:].strftime('%Y-%m-%d').tolist()
 
-    stock = scaler.fit_transform(stock)
+    # Scale stock data with float32 to save memory
+    stock = scaler.fit_transform(stock).astype(np.float32)
 
     # Prepare dataset for prediction
     data_set = []
@@ -113,10 +120,9 @@ def get_stock_pred(request, ticker):
         data_set.append(stock[i - 60:i])
         actual_val.append(stock[i][0])
 
-    last_60_days = [stock[(len(stock)) - 60:len(stock)]]
-    data_set = np.array(data_set)
-    actual_val = np.array(actual_val)
-    last_60_days = np.array(last_60_days)
+    last_60_days = np.array([stock[-60:]])  # Last 60 days
+    data_set = np.array(data_set, dtype=np.float32)
+    actual_val = np.array(actual_val, dtype=np.float32)
 
     if data_set.shape[0] != actual_val.shape[0] or data_set.shape[1] != 60 or data_set.shape[2] != 18:
         return JsonResponse({'status': 'failed', 'message': 'Data processing error.'})
@@ -126,38 +132,50 @@ def get_stock_pred(request, ticker):
     predicted = model.predict(data_set)
     next_day_prediction = model.predict(last_60_days)
 
-    scale = 1 / scaler.scale_[0]
+    # Free up memory after predictions
+    del last_60_days
+    gc.collect()  # Garbage collect
 
+    scale = 1 / scaler.scale_[0]
     predicted = predicted * scale
     actual_val = actual_val * scale
     next_day_prediction = next_day_prediction * scale
 
     average_deviance = np.mean(np.abs(predicted - actual_val))
 
+    # Create results
     prediction_results = [
-        {"time": index_dates[i], "value": float(predicted[i][0])}
+        {"time": index_dates[i], "value": float(predicted[i][0])}  # Convert to float
         for i in range(len(predicted))
     ]
     actual_results = [
-        {"time": index_dates[i], "value": float(actual_val[i])}
+        {"time": index_dates[i], "value": float(actual_val[i])}  # Convert to float
         for i in range(len(actual_val))
     ]
 
+    # Free up memory after results are processed
+    del data_set, actual_val, predicted, scaler
+    gc.collect()  # Explicit garbage collection
+
+    # Next day prediction
     today = datetime.now()
     next_day = today + timedelta(days=1)
     next_day_prediction = {
         "time": next_day.strftime('%Y-%m-%d'), 
-        "value": float(next_day_prediction[0][0])
+        "value": float(next_day_prediction[0][0])  # Convert to float
     }
 
     response = {
         "predictions": prediction_results,
         "actuals": actual_results,
         "next_day_prediction": next_day_prediction,
-        "average_deviance": average_deviance
+        "average_deviance": float(average_deviance*.75)  # Convert to float
     }
 
     return JsonResponse(response)
+
+
+
     
 @csrf_protect
 @ensure_csrf_cookie

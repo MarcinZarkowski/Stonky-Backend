@@ -34,7 +34,7 @@ SECRET_KEY = env("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG =env.bool("DEBUG")
-FRONT_END= env("FRONTEND_URL")
+FRONT_END= env("FRONTEND_URL")#
 
 ALLOWED_HOSTS = env.str("ALLOWED_HOSTS").split(" ")
 
@@ -176,15 +176,19 @@ EMAIL_HOST_USER = env('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 
 API_URL=env('API_URL')
+
+BACKEND_URL=env('BACKEND_URL')
 ###
 #EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-#CSRF_TRUSTED_ORIGINS = [
-#    'http://localhost:5173',
-#]
+CSRF_TRUSTED_ORIGINS = [
+    FRONT_END, 
+    BACKEND_URL
+]
 
 CORS_ALLOWED_ORIGINS = [
     FRONT_END,
+    BACKEND_URL
 ]
 #CORS_ALLOW_CREDENTIALS = True
 
