@@ -1,4 +1,6 @@
 # Django Backend for Stonky
+#Demo: https://www.youtube.com/watch?v=WLgpq9QTqIY
+
 -uses JWT authentication
 
 -includes email verification and password reset functionality 
